@@ -1,11 +1,13 @@
-[package]
-name = "trading-engine"
-version = "0.1.0"
-edition = "2021"
-description = "A modular Rust trading engine migrated from a Python Binance Spot trading bot."
-publish = false
-
 [workspace]
 resolver = "2"
+members = ["crates/core", "crates/config"]
 
-[dependencies]
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+
+[workspace.dependencies]
+chrono = { version = "0.4", default-features = false, features = ["std"] }
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+trading-engine-core = { path = "crates/core" }

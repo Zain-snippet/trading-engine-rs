@@ -1,0 +1,3 @@
+# The parity fixture must keep its original bytes (including its LF line endings).
+# Marking CSV fixtures as non-text prevents Git from normalizing or converting line endings.
+fixtures/*.csv -text

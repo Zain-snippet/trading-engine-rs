@@ -1,0 +1,13 @@
+[package]
+name = "trading-engine-core"
+version.workspace = true
+edition.workspace = true
+description = "Core domain types for the Rust trading engine."
+publish = false
+
+[dependencies]
+chrono.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+sha2 = "0.10"

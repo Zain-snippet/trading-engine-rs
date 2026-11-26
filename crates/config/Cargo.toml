@@ -1,0 +1,11 @@
+[package]
+name = "trading-engine-config"
+version.workspace = true
+edition.workspace = true
+description = "Typed configuration for the Rust trading engine."
+publish = false
+
+[dependencies]
+serde.workspace = true
+toml.workspace = true
+trading-engine-core.workspace = true

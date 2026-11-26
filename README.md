@@ -6,13 +6,33 @@ This repository is independent. The original Python repository is kept read-only
 
 ## Current status
 
-This is the **initial project setup only**:
+**M1 is complete**: the workspace contains only the two crates needed so far.
 
-- Cargo workspace and root binary crate are in place.
-- `.gitignore` is configured before source files were added.
+- `crates/core` (`trading-engine-core`) provides the core domain types: candles, timeframes, symbols, timestamps, money, signals, positions, fills, order intents, sides, and domain errors.
+- `crates/config` (`trading-engine-config`) provides typed configuration with the verified Python defaults, TOML parsing, and validation.
+- `fixtures/` contains the frozen ETH 4h parity fixture and its integrity documentation.
 - CI runs formatting checks, Clippy, and Cargo tests.
-- No indicators, strategies, exchange clients, execution logic, or backtesting are implemented yet.
+- No indicators, strategies, position sizing, risk engine, backtesting, exchange clients, execution logic, persistence, or WebSockets are implemented yet.
 - No API keys, credentials, or private configuration are included.
+
+## Workspace
+
+```text
+crates/
+  core/      trading-engine-core
+  config/    trading-engine-config
+fixtures/    frozen parity data
+```
+
+The package names use a `trading-engine-` prefix so they cannot be confused with Rust's built-in `core` crate; the directory names stay short. Placeholder crates for future components are intentionally not created.
+
+## Conventions
+
+- Timestamps are UTC milliseconds since the Unix epoch. Naive fixture timestamps are interpreted as UTC, never as local time.
+- `f64` is used for numerical parity with Python/pandas during Stage A.
+- Binance symbol formatting is isolated in `SymbolId::binance_symbol()`; the symbol identity itself is exchange-neutral.
+- Default `state_dir` and `log_dir` are relative (`state`, `logs`) rather than Python's source-root paths. This is a portability decision; callers running from another directory should set explicit paths.
+- `ATR_PERIOD = 14` is a fixed constant because the Python bot does not expose an ATR period in `BotCfg`.
 
 ## Migration philosophy
 
@@ -45,18 +65,22 @@ Only after Stage B is complete should strategy logic, parameters, or trading app
 
 The original Python test suite could not be executed in the audit environment because Python was unavailable. The Python behavioral baseline therefore remains **unverified**. No parity claim should be made until the baseline is executed separately using pinned dependencies and the committed fixture.
 
+## Parity fixture
+
+`fixtures/ETHUSDT_4h_2023-09_2024-12.csv` is a byte-identical copy of the original committed fixture. Its SHA-256, size, row count, and LF line endings are recorded in `fixtures/README.md` and enforced by `crates/core/tests/fixture.rs`.
+
 ## Planned direction
 
 The workspace will expand only when implementation requires it. Planned responsibilities include core domain types, configuration, market data, indicators, strategies, risk management, execution, persistence, exchange integrations, backtesting, CLI, and monitoring.
 
-For the initial implementation, `f64` will be used for numerical parity with Python/pandas. `reqwest` is the planned thin REST HTTP client; no exchange SDK or API dependency is introduced in the initial setup.
+During parity work, `f64` is used for numerical parity with Python/pandas. `reqwest` is the planned thin REST HTTP client; no exchange SDK or API dependency is introduced yet.
 
 ## Development
 
 ```bash
 cargo fmt --all -- --check
-cargo clippy --all-targets --all-features -- -D warnings
-cargo test --all-targets
+cargo clippy --locked --all-targets --all-features -- -D warnings
+cargo test --locked --all-targets
 ```
 
 GitHub Actions runs the same three checks on pushes to `main` and on pull requests.
