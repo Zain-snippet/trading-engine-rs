@@ -1,0 +1,11 @@
+[package]
+name = "trading-engine"
+version = "0.1.0"
+edition = "2021"
+description = "A modular Rust trading engine migrated from a Python Binance Spot trading bot."
+publish = false
+
+[workspace]
+resolver = "2"
+
+[dependencies]

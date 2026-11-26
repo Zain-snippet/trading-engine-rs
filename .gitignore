@@ -1,0 +1,25 @@
+# Rust build artifacts
+/target/
+**/*.rs.bk
+
+# Cargo
+# Cargo.lock is committed for reproducible binary builds.
+
+# Secrets and local configuration
+.env
+.env.*
+*.env
+secrets/
+*.key
+*.pem
+
+# Runtime state and logs
+state/
+logs/
+*.log
+
+# Local editor/OS files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
