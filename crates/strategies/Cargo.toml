@@ -1,0 +1,11 @@
+[package]
+name = "trading-engine-strategies"
+version.workspace = true
+edition.workspace = true
+description = "Rule-based trading strategies matching the Python reference implementation."
+publish = false
+
+[dependencies]
+trading-engine-config.workspace = true
+trading-engine-core.workspace = true
+trading-engine-indicators.workspace = true

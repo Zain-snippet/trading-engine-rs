@@ -260,6 +260,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "trading-engine-strategies"
+version = "0.1.0"
+dependencies = [
+ "trading-engine-config",
+ "trading-engine-core",
+ "trading-engine-indicators",
+]
+
+[[package]]
 name = "typenum"
 version = "1.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

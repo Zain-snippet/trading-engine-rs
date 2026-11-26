@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/core", "crates/config", "crates/indicators"]
+members = ["crates/core", "crates/config", "crates/indicators", "crates/strategies"]
 
 [workspace.package]
 version = "0.1.0"
@@ -10,4 +10,6 @@ edition = "2021"
 chrono = { version = "0.4", default-features = false, features = ["std"] }
 serde = { version = "1", features = ["derive"] }
 toml = "0.8"
+trading-engine-config = { path = "crates/config" }
 trading-engine-core = { path = "crates/core" }
+trading-engine-indicators = { path = "crates/indicators" }
