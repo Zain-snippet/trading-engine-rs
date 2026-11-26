@@ -260,6 +260,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "trading-engine-risk"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "trading-engine-core",
+]
+
+[[package]]
 name = "trading-engine-strategies"
 version = "0.1.0"
 dependencies = [

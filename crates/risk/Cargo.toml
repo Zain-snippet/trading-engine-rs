@@ -1,0 +1,11 @@
+[package]
+name = "trading-engine-risk"
+version.workspace = true
+edition.workspace = true
+description = "Position sizing, equity calculation, and daily risk gate logic."
+publish = false
+
+[dependencies]
+chrono.workspace = true
+serde.workspace = true
+trading-engine-core.workspace = true
