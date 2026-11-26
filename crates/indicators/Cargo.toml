@@ -1,0 +1,9 @@
+[package]
+name = "trading-engine-indicators"
+version.workspace = true
+edition.workspace = true
+description = "Technical indicators with Python/pandas parity for the Rust trading engine."
+publish = false
+
+[dependencies]
+trading-engine-core.workspace = true
