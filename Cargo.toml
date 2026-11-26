@@ -6,6 +6,7 @@ members = [
   "crates/indicators",
   "crates/strategies",
   "crates/risk",
+  "crates/persistence",
 ]
 
 [workspace.package]
@@ -13,9 +14,12 @@ version = "0.1.0"
 edition = "2021"
 
 [workspace.dependencies]
-chrono = { version = "0.4", default-features = false, features = ["std"] }
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+csv = "1.4"
 serde = { version = "1", features = ["derive"] }
+serde_json = "1.0"
 toml = "0.8"
 trading-engine-config = { path = "crates/config" }
 trading-engine-core = { path = "crates/core" }
 trading-engine-indicators = { path = "crates/indicators" }
+trading-engine-risk = { path = "crates/risk" }

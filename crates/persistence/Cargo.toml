@@ -1,0 +1,14 @@
+[package]
+name = "trading-engine-persistence"
+version.workspace = true
+edition.workspace = true
+description = "Crash-safe JSON state persistence, CSV trade journal, and secret redaction."
+publish = false
+
+[dependencies]
+chrono.workspace = true
+csv.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+trading-engine-core.workspace = true
+trading-engine-risk.workspace = true

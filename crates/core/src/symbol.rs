@@ -13,7 +13,7 @@ use crate::error::DomainError;
 /// Exchange-specific formatting is kept out of the identity type. Binance
 /// concatenates the parts (`ETHUSDT`), matching the Python `SymbolCfg.raw`
 /// property; other exchanges can add their own formatting later.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SymbolId {
     base: String,
     quote: String,
