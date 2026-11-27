@@ -13,4 +13,5 @@ trading-engine-risk.workspace = true
 trading-engine-strategies.workspace = true
 
 [dev-dependencies]
+sha2 = "0.10"
 serde_json.workspace = true
