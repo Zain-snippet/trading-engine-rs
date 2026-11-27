@@ -11,7 +11,7 @@
 
 ## Integration design
 
-Add a `binance` crate containing only the Spot Testnet transport and exchange-specific types. Its REST base is fixed to `https://testnet.binance.vision/api`; no production URL is configurable. Separate public market-data operations from signed account/trade operations. Keep credentials out of configuration files and diagnostics. Unit tests use mocked HTTP responses.
+The `binance` crate contains only the Spot Testnet transport and exchange-specific types. Its REST base is fixed to `https://testnet.binance.vision/api`; no production URL is configurable. Public market-data operations and signed account/trade operations are separate. Credentials come from `BINANCE_TESTNET_API_KEY` and `BINANCE_TESTNET_API_SECRET`, are not Debug-printable, and never enter configuration files or diagnostics. Unit tests use mocked HTTP responses.
 
 Market data is converted at the boundary into the existing validated `Candle` and `SymbolId` types. The adapter returns candle open and close timestamps so the caller can exclude a candle unless its close time is earlier than a captured UTC server/local decision time. The exchange adapter does not create strategy signals.
 
@@ -38,6 +38,7 @@ Each milestone stays independently testable. Public calls are mock-tested; authe
 
 - [Spot Testnet general information](https://developers.binance.com/en/docs/products/spot/testnet/general-info): Testnet REST base and environment details.
 - [Spot REST API](https://developers.binance.com/en/docs/products/spot/rest-api): endpoint semantics, signed request rules and errors.
+- [Spot request security](https://developers.binance.com/en/docs/products/spot/rest-api/request-security): HMAC signing, timestamp and receive-window protocol.
 - [Spot filters](https://developers.binance.com/en/docs/products/spot/filters): exchange-side filter definitions.
 - [Original Python paper engine](https://github.com/mafzalkalwardev/binance-trading-bot/blob/main/paperbot/engine.py) and [state](https://github.com/mafzalkalwardev/binance-trading-bot/blob/main/paperbot/state.py): read-only behavioral references.
 
