@@ -48,7 +48,21 @@ impl Decimal {
         Ok((left, right))
     }
 
-    fn checked_mul(self, other: Self) -> Result<Self, OrderValidationError> {
+    pub(crate) fn checked_add(self, other: Self) -> Result<Self, OrderValidationError> {
+        let scale = self.scale.max(other.scale);
+        let (left, right) = self.align(other)?;
+        let coefficient = left
+            .checked_add(right)
+            .ok_or(OrderValidationError::DecimalOverflow)?;
+        Ok(Self::normalized(coefficient, scale))
+    }
+
+    pub(crate) fn checked_cmp(self, other: Self) -> Result<Ordering, OrderValidationError> {
+        let (left, right) = self.align(other)?;
+        Ok(left.cmp(&right))
+    }
+
+    pub(crate) fn checked_mul(self, other: Self) -> Result<Self, OrderValidationError> {
         let coefficient = self
             .coefficient
             .checked_mul(other.coefficient)

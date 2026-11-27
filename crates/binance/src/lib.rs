@@ -5,12 +5,17 @@
 //! account/trade operations remain isolated from strategy code.
 
 mod authenticated;
+mod execution;
 mod market_data;
 mod validation;
 
 pub use authenticated::{
-    AccountInfo, AssetBalance, BinanceTestnetClient, ExchangeInfo, ExchangeSymbol, OrderResponse,
-    OrderStatus, TestnetCredentials, TestnetError,
+    AccountInfo, AssetBalance, BinanceTestnetClient, BinanceTrade, ExchangeInfo, ExchangeSymbol,
+    OrderResponse, OrderStatus, OrderSubmitError, TestnetCredentials, TestnetError,
+};
+pub use execution::{
+    deterministic_client_order_id, ExecutionError, OrderLifecycle, OrderLifecycleState,
+    TrackedTrade, TradeLedger,
 };
 pub use market_data::{BinancePublicClient, MarketCandle, MarketDataError};
 pub use validation::{

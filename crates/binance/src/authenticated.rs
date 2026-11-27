@@ -1,8 +1,10 @@
 use std::{
+    collections::HashMap,
     env, fmt,
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use crate::{Decimal, OrderValidationError, OrderValidator};
 use hmac::{Hmac, Mac};
 use reqwest::{blocking::Client, Method};
 use serde::Deserialize;
@@ -133,7 +135,7 @@ impl BinanceTestnetClient {
 
     /// Signed market order. `quantity` is a decimal string so filter validation
     /// can supply its exact, validated representation in M4.
-    pub fn market_order(
+    fn market_order(
         &self,
         symbol: &SymbolId,
         side: Side,
@@ -162,6 +164,26 @@ impl BinanceTestnetClient {
                 ("newOrderRespType".to_owned(), "FULL".to_owned()),
             ],
         )
+    }
+
+    /// Validates the exact market order against cached exchange rules and
+    /// current free balances immediately before submitting it to Testnet.
+    #[allow(clippy::too_many_arguments)]
+    pub fn market_order_validated(
+        &self,
+        validator: &OrderValidator,
+        symbol: &SymbolId,
+        side: Side,
+        quantity: &Decimal,
+        reference_price: &Decimal,
+        free_balances: &HashMap<String, Decimal>,
+        client_order_id: &str,
+    ) -> Result<OrderResponse, OrderSubmitError> {
+        validator
+            .validate_market_order(symbol, side, *quantity, *reference_price, free_balances)
+            .map_err(OrderSubmitError::Validation)?;
+        self.market_order(symbol, side, &quantity.to_string(), client_order_id)
+            .map_err(OrderSubmitError::Exchange)
     }
 
     pub fn query_order(
@@ -200,6 +222,23 @@ impl BinanceTestnetClient {
         )
     }
 
+    /// Signed `GET /api/v3/myTrades` filtered by exchange order ID.
+    pub fn my_trades(
+        &self,
+        symbol: &SymbolId,
+        order_id: u64,
+    ) -> Result<Vec<BinanceTrade>, TestnetError> {
+        self.request(
+            Method::GET,
+            "/v3/myTrades",
+            vec![
+                ("symbol".to_owned(), symbol.binance_symbol()),
+                ("orderId".to_owned(), order_id.to_string()),
+                ("limit".to_owned(), "1000".to_owned()),
+            ],
+        )
+    }
+
     fn request<T: for<'de> Deserialize<'de>>(
         &self,
         method: Method,
@@ -230,6 +269,23 @@ impl BinanceTestnetClient {
         serde_json::from_str(&body).map_err(|error| TestnetError::Malformed(error.to_string()))
     }
 }
+
+#[derive(Debug)]
+pub enum OrderSubmitError {
+    Validation(OrderValidationError),
+    Exchange(TestnetError),
+}
+
+impl fmt::Display for OrderSubmitError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Validation(error) => write!(f, "local order validation failed: {error}"),
+            Self::Exchange(error) => write!(f, "Testnet order submission failed: {error}"),
+        }
+    }
+}
+
+impl std::error::Error for OrderSubmitError {}
 
 fn valid_positive_decimal(value: &str) -> bool {
     let mut dot_seen = false;
@@ -401,6 +457,20 @@ pub struct OrderFill {
     pub trade_id: u64,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BinanceTrade {
+    pub id: u64,
+    pub order_id: u64,
+    pub price: String,
+    pub qty: String,
+    pub quote_qty: String,
+    pub commission: String,
+    pub commission_asset: String,
+    pub time: u64,
+    pub is_buyer: bool,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -504,6 +574,39 @@ mod tests {
     }
 
     #[test]
+    fn validated_market_order_rejects_exchange_filter_failures_locally() {
+        let metadata: ExchangeSymbol = serde_json::from_value(serde_json::json!({
+            "symbol":"ETHUSDT", "status":"TRADING", "baseAsset":"ETH", "quoteAsset":"USDT",
+            "filters":[
+                {"filterType":"PRICE_FILTER","minPrice":"0.01","maxPrice":"1000000","tickSize":"0.01"},
+                {"filterType":"LOT_SIZE","minQty":"0.001","maxQty":"1000","stepSize":"0.001"},
+                {"filterType":"MIN_NOTIONAL","minNotional":"5","applyToMarket":true}
+            ]
+        })).unwrap();
+        let validator = OrderValidator::new([&metadata]).unwrap();
+        let credentials = TestnetCredentials::new("key".to_owned(), "secret".to_owned()).unwrap();
+        let client =
+            BinanceTestnetClient::with_base_url(credentials, "http://127.0.0.1:1".to_owned())
+                .unwrap();
+        let balances = HashMap::from([("USDT".to_owned(), Decimal::parse("100").unwrap())]);
+        let error = client
+            .market_order_validated(
+                &validator,
+                &SymbolId::parse("ETH/USDT").unwrap(),
+                Side::Buy,
+                &Decimal::parse("0.001").unwrap(),
+                &Decimal::parse("2000").unwrap(),
+                &balances,
+                "entry-1",
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            OrderSubmitError::Validation(OrderValidationError::NotionalBelowMinimum)
+        ));
+    }
+
+    #[test]
     fn query_and_cancel_use_client_order_id_without_resubmission() {
         let body = r#"{"symbol":"ETHUSDT","orderId":42,"clientOrderId":"entry-1","status":"NEW","executedQty":"0","cummulativeQuoteQty":"0","fills":[]}"#;
         let (client, server) = mock_request(body.to_owned());
@@ -523,6 +626,21 @@ mod tests {
             42
         );
         assert!(server.join().unwrap().starts_with("DELETE /v3/order?"));
+    }
+
+    #[test]
+    fn my_trades_returns_exchange_fill_commission_and_identity_fields() {
+        let body = r#"[{"symbol":"ETHUSDT","id":7,"orderId":44,"price":"2000","qty":"0.1","quoteQty":"200","commission":"0.0001","commissionAsset":"ETH","time":123,"isBuyer":true,"isMaker":false,"isBestMatch":true}]"#;
+        let (client, server) = mock_request(body.to_owned());
+        let trades = client
+            .my_trades(&SymbolId::parse("ETH/USDT").unwrap(), 44)
+            .unwrap();
+        let request = server.join().unwrap();
+        assert!(request.contains("GET /v3/myTrades?"));
+        assert!(request.contains("orderId=44"));
+        assert_eq!(trades[0].id, 7);
+        assert_eq!(trades[0].commission_asset, "ETH");
+        assert!(trades[0].is_buyer);
     }
 
     #[test]
