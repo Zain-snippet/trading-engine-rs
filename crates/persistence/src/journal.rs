@@ -217,10 +217,17 @@ impl Journal {
 mod tests {
     use super::*;
 
+    fn test_dir(name: &str) -> PathBuf {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!("te-{name}-{}-{unique}", std::process::id()))
+    }
+
     #[test]
     fn creates_header_and_roundtrips_entries() {
-        use std::env;
-        let dir = env::temp_dir().join(format!("te-journal-test-{}", std::process::id()));
+        let dir = test_dir("journal-test");
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("journal.csv");
 
@@ -247,8 +254,7 @@ mod tests {
 
     #[test]
     fn appends_across_multiple_opens() {
-        use std::env;
-        let dir = env::temp_dir().join(format!("te-journal-append-{}", std::process::id()));
+        let dir = test_dir("journal-append");
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("j.csv");
 

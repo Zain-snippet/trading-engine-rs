@@ -35,6 +35,19 @@ impl Decimal {
         self.coefficient > 0
     }
 
+    /// Floors a positive value to an exchange quantity step without using
+    /// binary floating-point arithmetic.
+    pub fn floor_to_step(self, step: Self) -> Result<Self, OrderValidationError> {
+        if step.coefficient <= 0 {
+            return Err(OrderValidationError::InvalidQuantity);
+        }
+        let (value, step_scaled) = self.align(step)?;
+        Ok(Self::normalized(
+            (value / step_scaled) * step_scaled,
+            self.scale.max(step.scale),
+        ))
+    }
+
     fn align(self, other: Self) -> Result<(i128, i128), OrderValidationError> {
         let scale = self.scale.max(other.scale);
         let left = self
@@ -48,7 +61,7 @@ impl Decimal {
         Ok((left, right))
     }
 
-    pub(crate) fn checked_add(self, other: Self) -> Result<Self, OrderValidationError> {
+    pub fn checked_add(self, other: Self) -> Result<Self, OrderValidationError> {
         let scale = self.scale.max(other.scale);
         let (left, right) = self.align(other)?;
         let coefficient = left
@@ -333,6 +346,11 @@ impl ExchangeRules {
         }
         Ok(())
     }
+
+    #[must_use]
+    pub fn market_quantity_step(&self) -> Decimal {
+        self.market_lot.unwrap_or(self.lot).step_size
+    }
 }
 
 fn quantity_filter(
@@ -400,6 +418,15 @@ impl OrderValidator {
         let parsed = ExchangeRules::from_exchange_symbol(symbol)?;
         self.rules.insert(parsed.symbol.clone(), parsed);
         Ok(())
+    }
+
+    pub fn rules_for_symbol(
+        &self,
+        symbol: &SymbolId,
+    ) -> Result<&ExchangeRules, OrderValidationError> {
+        self.rules
+            .get(&symbol.binance_symbol())
+            .ok_or_else(|| OrderValidationError::UnsupportedSymbol(symbol.binance_symbol()))
     }
 
     pub fn validate_market_order(

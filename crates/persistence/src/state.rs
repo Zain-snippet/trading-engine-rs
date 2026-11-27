@@ -87,6 +87,20 @@ pub struct SimBrokerState {
 pub struct ExchangeState {
     #[serde(default)]
     pub orders: HashMap<String, PersistedExchangeOrder>,
+    #[serde(default)]
+    pub discrepancies: Vec<ReconciliationDiscrepancy>,
+    /// Latest exchange open orders not backed by an active local intent.
+    #[serde(default)]
+    pub untracked_open_orders: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReconciliationDiscrepancy {
+    pub symbol: String,
+    pub local_quantity: String,
+    pub exchange_quantity: String,
+    pub reason: String,
+    pub observed_at_ms: i64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -332,10 +346,17 @@ fn replace_file(source: &Path, destination: &Path) -> Result<(), PersistenceErro
 mod tests {
     use super::*;
 
+    fn test_dir(name: &str) -> PathBuf {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!("te-{name}-{}-{unique}", std::process::id()))
+    }
+
     #[test]
     fn round_trips_default_state() {
-        use std::env;
-        let dir = env::temp_dir().join(format!("te-state-test-{}", std::process::id()));
+        let dir = test_dir("state-test");
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("state.json");
 
@@ -359,8 +380,7 @@ mod tests {
 
     #[test]
     fn persists_and_restores_positions_and_pending() {
-        use std::env;
-        let dir = env::temp_dir().join(format!("te-state-pos-{}", std::process::id()));
+        let dir = test_dir("state-pos");
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("state.json");
 
@@ -405,8 +425,7 @@ mod tests {
 
     #[test]
     fn atomic_save_does_not_corrupt_on_interleaved_reads() {
-        use std::env;
-        let dir = env::temp_dir().join(format!("te-state-atomic-{}", std::process::id()));
+        let dir = test_dir("state-atomic");
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("state.json");
         let mut store = StateStore::open(&path).unwrap();
@@ -419,8 +438,7 @@ mod tests {
 
     #[test]
     fn persists_exchange_intents_partial_fills_and_restart_state_without_duplicates() {
-        use std::env;
-        let dir = env::temp_dir().join(format!("te-state-exchange-{}", std::process::id()));
+        let dir = test_dir("state-exchange");
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("state.json");
         let mut store = StateStore::open(&path).unwrap();
@@ -479,7 +497,7 @@ mod tests {
 
     #[test]
     fn old_simulator_state_without_exchange_field_still_loads() {
-        let dir = std::env::temp_dir().join(format!("te-state-old-{}", std::process::id()));
+        let dir = test_dir("state-old");
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("state.json");
         std::fs::write(&path, r#"{"positions":{},"pending":{},"last_candle":{},"day":null,"day_start_equity":null,"paused_day":null,"halted":false,"sim":null,"closed":[]}"#).unwrap();

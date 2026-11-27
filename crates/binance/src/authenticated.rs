@@ -207,6 +207,18 @@ impl BinanceTestnetClient {
         self.request(Method::GET, "/v3/order", params)
     }
 
+    /// Signed `GET /api/v3/openOrders`; omitting the symbol returns all open
+    /// Spot orders on the Testnet account.
+    pub fn open_orders(
+        &self,
+        symbol: Option<&SymbolId>,
+    ) -> Result<Vec<OrderResponse>, TestnetError> {
+        let params = symbol
+            .map(|symbol| vec![("symbol".to_owned(), symbol.binance_symbol())])
+            .unwrap_or_default();
+        self.request(Method::GET, "/v3/openOrders", params)
+    }
+
     pub fn cancel_order(
         &self,
         symbol: &SymbolId,
@@ -258,11 +270,11 @@ impl BinanceTestnetClient {
             .request(method, url)
             .header("X-MBX-APIKEY", &self.credentials.api_key)
             .send()
-            .map_err(|error| TestnetError::Transport(error.to_string()))?;
+            .map_err(|error| TestnetError::Transport(error.without_url().to_string()))?;
         let status = response.status();
         let body = response
             .text()
-            .map_err(|error| TestnetError::Transport(error.to_string()))?;
+            .map_err(|error| TestnetError::Transport(error.without_url().to_string()))?;
         if !status.is_success() {
             return Err(http_error(status, &body));
         }
@@ -433,7 +445,7 @@ impl<'de> Deserialize<'de> for OrderStatus {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OrderResponse {
     pub symbol: String,
@@ -447,7 +459,7 @@ pub struct OrderResponse {
     pub fills: Vec<OrderFill>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OrderFill {
     pub price: String,

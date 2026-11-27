@@ -12,5 +12,5 @@ pub use redaction::{redact_secrets, LogRedactor};
 pub use state::{
     BotState, ClosedTradeRecord, ExchangeState, PendingOrder, PendingOrderKind,
     PersistedExchangeFill, PersistedExchangeOrder, PersistedFill, PersistedOrderStatus,
-    PersistedPosition, SimBrokerState, StateStore,
+    PersistedPosition, ReconciliationDiscrepancy, SimBrokerState, StateStore,
 };
