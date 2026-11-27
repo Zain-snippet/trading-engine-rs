@@ -4,7 +4,7 @@ A modular Rust migration of the long-only Binance Spot research and paper-tradin
 
 ## Current implementation
 
-The workspace contains six library crates:
+The workspace contains eight library crates:
 
 - `trading-engine-core`: validated candles, UTC timestamps, symbols, money, long-only signals and positions, fills, and market-order intents.
 - `trading-engine-config`: strict TOML configuration and validation, including the original ETH/USDT and BTC/USDT defaults.
@@ -13,14 +13,19 @@ The workspace contains six library crates:
 - `trading-engine-risk`: paper and backtest sizing helpers, equity calculation, initial stops, and daily loss/kill/pause entry gates.
 - `trading-engine-persistence`: JSON state, CSV journal, and known-secret redaction.
 - `trading-engine-sim`: deterministic single-process simulated orchestration using caller-supplied completed candles and ticker prices.
+- `trading-engine-backtest`: single-symbol historical simulation with next-candle-open execution and performance metrics.
 
 The deterministic ETH 4-hour fixture is in `fixtures/`. Unit and fixture tests cover the implemented library behavior. CI is configured to run formatting, Clippy, and Cargo tests.
 
 ## Not implemented yet
 
-This repository is not a runnable unattended trading bot. It has no executable, market data client, broker/exchange adapter, or historical backtester. There is no Binance integration, order reconciliation, exchange precision/filter handling, or process-level locking for persisted files. State and journal access is single-writer; do not run multiple processes against the same paths.
+This repository is not a runnable unattended trading bot. It has no executable, market data client, or exchange adapter. There is no Binance integration, order reconciliation, exchange precision/filter handling, or process-level locking for persisted files. State and journal access is single-writer; do not run multiple processes against the same paths.
 
-The simulator evaluates each symbol's strategy on completed candle history and fills at the ticker price supplied for that step. It persists positions, balances, closed trades, and last-processed candle IDs, and writes deterministic journal timestamps from candle time. Pause and kill gates block new entries; they do not stop this engine or suppress a position's signal exit or stop-loss. Emergency process shutdown is an operator action and does not liquidate positions. On restart, the persisted last candle prevents replaying the same entry. Live execution must not be connected until exchange precision, partial fills, restart recovery, and duplicate-order handling are implemented and tested.
+The simulator evaluates each symbol's strategy on completed candle history and fills at the ticker price supplied for that step. It persists positions, balances, closed trades, and last-processed candle IDs, and writes deterministic journal timestamps from candle time. Pause and kill gates block new entries; they do not stop this engine or suppress a position's signal exit or stop-loss. Emergency process shutdown is an operator action and does not liquidate positions. On restart, the persisted last candle prevents replaying the same entry.
+
+The backtester operates on one symbol per run, matching the Python backtest API; callers run symbols independently. It uses close-generated signals, next-open orders, adverse slippage, per-fill fees, intrabar stop checks, and final-close liquidation. Metrics require initial capital explicitly so returns are not silently measured against the Python helper's hard-coded default. The reference `metrics()` helper defaults to 10,000; callers that omit `initial=cfg.initial` get incorrect total return/CAGR and synthetic daily Sharpe when using another starting balance. The reference runner passes the custom initial balance for its primary grid but not consistently in all evaluation paths.
+
+Live execution must not be connected until exchange precision, partial fills, restart recovery, and duplicate-order handling are implemented and tested.
 
 ## Behavioral parity constraints
 
@@ -28,10 +33,10 @@ The simulator evaluates each symbol's strategy on completed candle history and f
 - `f64` is retained for parity with Python/pandas calculations.
 - Donchian channels exclude the current candle through shifted rolling extrema.
 - ATR preserves pandas `ewm(alpha=1/n, adjust=False, min_periods=n)` initialization, not an SMA-seeded Wilder initialization.
-- Historical backtest fills must use the next candle open with modeled fee and slippage. Paper trading fills must use the current public ticker price after candle close. These models are distinct and have not yet been implemented as integrated execution paths.
+- Historical backtest fills use the next candle open with modeled adverse slippage and fees. Paper trading fills use the current public ticker price after candle close. These models are implemented separately in `backtest` and `sim`.
 - Existing strategy parameters, risk calculations, timestamp handling, and state formats should not change without parity tests.
 
-The committed Python behavioral baseline has not been executed in this environment, so complete cross-language parity is not yet established.
+The original Python code was inspected read-only, but its dependencies are unavailable in this environment, so no cross-language output comparison has been run. Complete parity is not established.
 
 ## Workspace
 
@@ -44,6 +49,7 @@ crates/
   risk/          sizing and entry risk gates
   persistence/   state, journal, redaction
   sim/           deterministic ticker-price simulation orchestration
+  backtest/      next-candle-open historical backtester and metrics
 fixtures/        frozen parity data
 ```
 

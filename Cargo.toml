@@ -8,6 +8,7 @@ members = [
   "crates/risk",
   "crates/persistence",
   "crates/sim",
+  "crates/backtest",
 ]
 
 [workspace.package]

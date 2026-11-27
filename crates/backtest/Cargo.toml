@@ -1,0 +1,12 @@
+[package]
+name = "trading-engine-backtest"
+version.workspace = true
+edition.workspace = true
+description = "Historical long-only backtesting with next-candle-open execution."
+publish = false
+
+[dependencies]
+chrono.workspace = true
+trading-engine-core.workspace = true
+trading-engine-risk.workspace = true
+trading-engine-strategies.workspace = true
