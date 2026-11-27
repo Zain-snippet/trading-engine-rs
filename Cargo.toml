@@ -7,6 +7,7 @@ members = [
   "crates/strategies",
   "crates/risk",
   "crates/persistence",
+  "crates/sim",
 ]
 
 [workspace.package]
@@ -23,3 +24,5 @@ trading-engine-config = { path = "crates/config" }
 trading-engine-core = { path = "crates/core" }
 trading-engine-indicators = { path = "crates/indicators" }
 trading-engine-risk = { path = "crates/risk" }
+trading-engine-persistence = { path = "crates/persistence" }
+trading-engine-strategies = { path = "crates/strategies" }

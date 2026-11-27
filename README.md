@@ -12,14 +12,15 @@ The workspace contains six library crates:
 - `trading-engine-strategies`: long-only Donchian breakout, EMA crossover, and RSI mean-reversion signals.
 - `trading-engine-risk`: paper and backtest sizing helpers, equity calculation, initial stops, and daily loss/kill/pause entry gates.
 - `trading-engine-persistence`: JSON state, CSV journal, and known-secret redaction.
+- `trading-engine-sim`: deterministic single-process simulated orchestration using caller-supplied completed candles and ticker prices.
 
 The deterministic ETH 4-hour fixture is in `fixtures/`. Unit and fixture tests cover the implemented library behavior. CI is configured to run formatting, Clippy, and Cargo tests.
 
 ## Not implemented yet
 
-This repository is not a runnable trading bot. It has no executable, end-to-end orchestration loop, market data client, broker/exchange adapter, integrated simulated broker, or historical backtester. There is no Binance integration, order reconciliation, exchange precision/filter handling, or process-level locking for persisted files. State storage is single-writer; do not run multiple bot processes against the same state or journal paths.
+This repository is not a runnable unattended trading bot. It has no executable, market data client, broker/exchange adapter, or historical backtester. There is no Binance integration, order reconciliation, exchange precision/filter handling, or process-level locking for persisted files. State and journal access is single-writer; do not run multiple processes against the same paths.
 
-Kill and pause gates block new entries at the risk-policy layer. Protective exits and stop handling must remain available when the orchestration layer is added. Live execution must not be connected until exchange precision, partial fills, restart recovery, and duplicate-order handling are implemented and tested.
+The simulator evaluates each symbol's strategy on completed candle history and fills at the ticker price supplied for that step. It persists positions, balances, closed trades, and last-processed candle IDs, and writes deterministic journal timestamps from candle time. Pause and kill gates block new entries; they do not stop this engine or suppress a position's signal exit or stop-loss. Emergency process shutdown is an operator action and does not liquidate positions. On restart, the persisted last candle prevents replaying the same entry. Live execution must not be connected until exchange precision, partial fills, restart recovery, and duplicate-order handling are implemented and tested.
 
 ## Behavioral parity constraints
 
@@ -42,6 +43,7 @@ crates/
   strategies/    long-only strategy signals
   risk/          sizing and entry risk gates
   persistence/   state, journal, redaction
+  sim/           deterministic ticker-price simulation orchestration
 fixtures/        frozen parity data
 ```
 

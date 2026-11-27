@@ -466,6 +466,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "trading-engine-sim"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "trading-engine-config",
+ "trading-engine-core",
+ "trading-engine-persistence",
+ "trading-engine-risk",
+ "trading-engine-strategies",
+]
+
+[[package]]
 name = "trading-engine-strategies"
 version = "0.1.0"
 dependencies = [
