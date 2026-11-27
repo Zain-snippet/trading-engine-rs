@@ -10,6 +10,7 @@ pub use error::PersistenceError;
 pub use journal::{Journal, JournalEntry, JOURNAL_FIELDS};
 pub use redaction::{redact_secrets, LogRedactor};
 pub use state::{
-    BotState, ClosedTradeRecord, PendingOrder, PendingOrderKind, PersistedFill, PersistedPosition,
-    SimBrokerState, StateStore,
+    BotState, ClosedTradeRecord, ExchangeState, PendingOrder, PendingOrderKind,
+    PersistedExchangeFill, PersistedExchangeOrder, PersistedFill, PersistedOrderStatus,
+    PersistedPosition, SimBrokerState, StateStore,
 };

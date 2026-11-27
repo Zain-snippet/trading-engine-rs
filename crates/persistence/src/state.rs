@@ -82,6 +82,68 @@ pub struct SimBrokerState {
     pub orders: HashMap<String, PersistedFill>,
 }
 
+/// Exchange order state stored separately from the simulator's full-fill model.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ExchangeState {
+    #[serde(default)]
+    pub orders: HashMap<String, PersistedExchangeOrder>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PersistedOrderStatus {
+    Prepared,
+    Submitting,
+    Unknown,
+    New,
+    PartiallyFilled,
+    Filled,
+    Canceled,
+    Rejected,
+    Expired,
+    ExpiredInMatch,
+}
+
+/// Durable intent/order/fill metadata for recovery by deterministic client ID.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PersistedExchangeOrder {
+    pub symbol: String,
+    pub side: String,
+    pub client_order_id: String,
+    pub requested_qty: String,
+    pub status: PersistedOrderStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exchange_order_id: Option<String>,
+    pub executed_qty: String,
+    pub cumulative_quote_qty: String,
+    #[serde(default)]
+    pub fills: HashMap<String, PersistedExchangeFill>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signal_candle: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub atr: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stop_price: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    pub created_at_ms: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_reconciled_at_ms: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub discrepancy: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PersistedExchangeFill {
+    pub trade_id: String,
+    pub qty: String,
+    pub price: String,
+    pub quote_qty: String,
+    pub commission: String,
+    pub commission_asset: String,
+    pub time_ms: u64,
+}
+
 impl SimBrokerState {
     #[must_use]
     pub fn new_with_quote(quote: impl Into<String>, initial_usdt: f64) -> Self {
@@ -107,6 +169,8 @@ pub struct BotState {
     pub started_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sim: Option<SimBrokerState>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exchange: Option<ExchangeState>,
     #[serde(default)]
     pub closed: Vec<ClosedTradeRecord>,
 }
@@ -154,6 +218,48 @@ impl StateStore {
         F: FnOnce(&mut BotState),
     {
         mutate(&mut self.state);
+        self.save()
+    }
+
+    /// Durably records an exchange intent before a caller sends the POST.
+    /// Returns `false` when the client order ID already exists.
+    pub fn record_exchange_intent(
+        &mut self,
+        order: PersistedExchangeOrder,
+    ) -> Result<bool, PersistenceError> {
+        let exchange = self
+            .state
+            .exchange
+            .get_or_insert_with(ExchangeState::default);
+        if exchange.orders.contains_key(&order.client_order_id) {
+            return Ok(false);
+        }
+        exchange.orders.insert(order.client_order_id.clone(), order);
+        self.save()?;
+        Ok(true)
+    }
+
+    /// Mutates one durable order record and saves it atomically.
+    pub fn update_exchange_order<F>(
+        &mut self,
+        client_order_id: &str,
+        mutate: F,
+    ) -> Result<(), PersistenceError>
+    where
+        F: FnOnce(&mut PersistedExchangeOrder),
+    {
+        let order = self
+            .state
+            .exchange
+            .as_mut()
+            .and_then(|exchange| exchange.orders.get_mut(client_order_id))
+            .ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "exchange order intent not found",
+                )
+            })?;
+        mutate(order);
         self.save()
     }
 
@@ -309,5 +415,75 @@ mod tests {
             let reloaded = StateStore::open(&path).unwrap();
             assert_eq!(reloaded.state.halted, i % 2 == 0);
         }
+    }
+
+    #[test]
+    fn persists_exchange_intents_partial_fills_and_restart_state_without_duplicates() {
+        use std::env;
+        let dir = env::temp_dir().join(format!("te-state-exchange-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("state.json");
+        let mut store = StateStore::open(&path).unwrap();
+        let intent = PersistedExchangeOrder {
+            symbol: "ETH/USDT".to_owned(),
+            side: "BUY".to_owned(),
+            client_order_id: "teETHUSDTB123".to_owned(),
+            requested_qty: "0.3".to_owned(),
+            status: PersistedOrderStatus::Submitting,
+            exchange_order_id: None,
+            executed_qty: "0".to_owned(),
+            cumulative_quote_qty: "0".to_owned(),
+            fills: HashMap::new(),
+            signal_candle: Some("123".to_owned()),
+            atr: Some(10.0),
+            stop_price: Some("1980".to_owned()),
+            reason: Some("entry".to_owned()),
+            created_at_ms: 123,
+            last_reconciled_at_ms: None,
+            discrepancy: None,
+        };
+        assert!(store.record_exchange_intent(intent.clone()).unwrap());
+        assert!(!store.record_exchange_intent(intent).unwrap());
+        store
+            .update_exchange_order("teETHUSDTB123", |order| {
+                order.status = PersistedOrderStatus::PartiallyFilled;
+                order.exchange_order_id = Some("42".to_owned());
+                order.executed_qty = "0.1".to_owned();
+                order.cumulative_quote_qty = "200".to_owned();
+                order.fills.insert(
+                    "7".to_owned(),
+                    PersistedExchangeFill {
+                        trade_id: "7".to_owned(),
+                        qty: "0.1".to_owned(),
+                        price: "2000".to_owned(),
+                        quote_qty: "200".to_owned(),
+                        commission: "0.0001".to_owned(),
+                        commission_asset: "ETH".to_owned(),
+                        time_ms: 456,
+                    },
+                );
+            })
+            .unwrap();
+
+        let recovered = StateStore::open(&path).unwrap();
+        let recovered_order = &recovered.state.exchange.as_ref().unwrap().orders["teETHUSDTB123"];
+        assert_eq!(
+            recovered_order.status,
+            PersistedOrderStatus::PartiallyFilled
+        );
+        assert_eq!(recovered_order.executed_qty, "0.1");
+        assert_eq!(recovered_order.fills.len(), 1);
+        assert!(recovered_order.discrepancy.is_none());
+        assert!(!recovered.state.positions.contains_key("ETH/USDT"));
+    }
+
+    #[test]
+    fn old_simulator_state_without_exchange_field_still_loads() {
+        let dir = std::env::temp_dir().join(format!("te-state-old-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("state.json");
+        std::fs::write(&path, r#"{"positions":{},"pending":{},"last_candle":{},"day":null,"day_start_equity":null,"paused_day":null,"halted":false,"sim":null,"closed":[]}"#).unwrap();
+        let store = StateStore::open(&path).unwrap();
+        assert!(store.state.exchange.is_none());
     }
 }
