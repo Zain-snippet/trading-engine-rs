@@ -36,7 +36,17 @@ Live execution must not be connected until exchange precision, partial fills, re
 - Historical backtest fills use the next candle open with modeled adverse slippage and fees. Paper trading fills use the current public ticker price after candle close. These models are implemented separately in `backtest` and `sim`.
 - Existing strategy parameters, risk calculations, timestamp handling, and state formats should not change without parity tests.
 
-The original Python code was inspected read-only, but its dependencies are unavailable in this environment, so no cross-language output comparison has been run. Complete parity is not established.
+The frozen ETH fixture has been compared against the original Python Donchian backtester using `validation/parity/compare.py`. On the 2,928-candle fixture (55/50 Donchian, 2 ATR stop, default backtest configuration), all compared bar indicators and signals, 16 complete trades, per-candle equity values, daily equity, and aggregate metrics matched at absolute tolerance `1e-9` and relative tolerance `1e-10`. The independently instrumented reference produced final equity `13,943.096736739262`, total return `39.430967%`, max drawdown `-8.312724%`, Sharpe `1.664868`, and total fees `133.512285`. A compact Python-derived fixture golden is also checked by the Rust backtest integration test.
+
+This establishes parity for the tested strategy/configuration and fixture only. It is not a claim of complete behavioral parity across every strategy, configuration, market, or edge case. The reference checkout and data remain read-only; the validation harness instruments the Python backtest source in memory to expose per-trade quantity and fee fields for comparison. The source BTC historical dataset is not included, so no separate BTC fixture comparison is available.
+
+To reproduce the cross-language comparison, check out the original Python repository separately and install Python 3.11+ with NumPy and pandas. Then run from this repository:
+
+```bash
+python validation/parity/compare.py --python-ref /path/to/binance-trading-bot
+```
+
+The script writes a detailed JSON report (default `parity-report.json`) and exits nonzero on mismatch. It compares indicator warmup values, signals, individual trades including modeled fees, each equity point, daily equity, and performance metrics. The checked-in Rust regression test uses only the fixture and default Rust dependencies; it does not require Python.
 
 ## Workspace
 
@@ -50,6 +60,7 @@ crates/
   persistence/   state, journal, redaction
   sim/           deterministic ticker-price simulation orchestration
   backtest/      next-candle-open historical backtester and metrics
+validation/parity/  read-only Python reference comparison harness
 fixtures/        frozen parity data
 ```
 

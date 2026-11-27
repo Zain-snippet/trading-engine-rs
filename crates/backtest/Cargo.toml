@@ -8,5 +8,9 @@ publish = false
 [dependencies]
 chrono.workspace = true
 trading-engine-core.workspace = true
+trading-engine-indicators.workspace = true
 trading-engine-risk.workspace = true
 trading-engine-strategies.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

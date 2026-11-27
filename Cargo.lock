@@ -424,7 +424,9 @@ name = "trading-engine-backtest"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "serde_json",
  "trading-engine-core",
+ "trading-engine-indicators",
  "trading-engine-risk",
  "trading-engine-strategies",
 ]
