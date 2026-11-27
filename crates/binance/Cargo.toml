@@ -1,0 +1,15 @@
+[package]
+name = "trading-engine-binance"
+version.workspace = true
+edition.workspace = true
+description = "Binance Spot Testnet REST adapter."
+publish = false
+
+[dependencies]
+chrono.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+trading-engine-core.workspace = true
+
+[dev-dependencies]
