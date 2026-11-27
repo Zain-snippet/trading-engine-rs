@@ -1,4 +1,10 @@
-use std::{collections::HashMap, fs, path::PathBuf};
+use std::{
+    collections::HashMap,
+    fs::{self, OpenOptions},
+    io::Write,
+    path::{Path, PathBuf},
+    sync::atomic::{AtomicU64, Ordering},
+};
 
 use serde::{Deserialize, Serialize};
 use trading_engine_risk::DailyRiskState;
@@ -105,8 +111,8 @@ pub struct BotState {
     pub closed: Vec<ClosedTradeRecord>,
 }
 
-/// Atomic crash-safe JSON state store matching Python `State.save()` using
-/// `tempfile + os.replace`.
+/// Single-writer JSON state store. Saves stage and flush a unique sibling file,
+/// then replace the destination atomically where the platform supports it.
 #[derive(Debug)]
 pub struct StateStore {
     path: PathBuf,
@@ -132,13 +138,14 @@ impl StateStore {
             fs::create_dir_all(parent)?;
         }
 
-        let dir = self.path.parent().unwrap_or(std::path::Path::new("."));
-        let tmp_path = dir.join(".state-tmp.json");
+        let dir = self.path.parent().unwrap_or(Path::new("."));
         let json = serde_json::to_vec_pretty(&self.state)?;
-        fs::write(&tmp_path, &json)?;
-        fs::rename(&tmp_path, &self.path)?;
-
-        Ok(())
+        let tmp_path = write_unique_temp(dir, &json)?;
+        let result = replace_file(&tmp_path, &self.path);
+        if result.is_err() {
+            let _ = fs::remove_file(&tmp_path);
+        }
+        result
     }
 
     /// Convenience: mutate state and immediately save.
@@ -153,6 +160,66 @@ impl StateStore {
     pub fn path(&self) -> &PathBuf {
         &self.path
     }
+}
+
+static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+fn write_unique_temp(dir: &Path, contents: &[u8]) -> Result<PathBuf, PersistenceError> {
+    for _ in 0..100 {
+        let sequence = TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let path = dir.join(format!(".state-{}-{sequence}.tmp", std::process::id()));
+        match OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(mut file) => {
+                if let Err(error) = file.write_all(contents).and_then(|()| file.sync_all()) {
+                    let _ = fs::remove_file(&path);
+                    return Err(error.into());
+                }
+                return Ok(path);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        "could not allocate unique state temp file",
+    )
+    .into())
+}
+
+#[cfg(windows)]
+fn replace_file(source: &Path, destination: &Path) -> Result<(), PersistenceError> {
+    use std::os::windows::ffi::OsStrExt;
+    const MOVEFILE_REPLACE_EXISTING: u32 = 0x1;
+    const MOVEFILE_WRITE_THROUGH: u32 = 0x8;
+    #[link(name = "Kernel32")]
+    extern "system" {
+        fn MoveFileExW(existing: *const u16, new: *const u16, flags: u32) -> i32;
+    }
+    let source_wide: Vec<u16> = source.as_os_str().encode_wide().chain(Some(0)).collect();
+    let destination_wide: Vec<u16> = destination
+        .as_os_str()
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
+    // SAFETY: both paths are NUL-terminated UTF-16 buffers that remain alive for the call.
+    let ok = unsafe {
+        MoveFileExW(
+            source_wide.as_ptr(),
+            destination_wide.as_ptr(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )
+    };
+    if ok == 0 {
+        Err(std::io::Error::last_os_error().into())
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(not(windows))]
+fn replace_file(source: &Path, destination: &Path) -> Result<(), PersistenceError> {
+    fs::rename(source, destination).map_err(Into::into)
 }
 
 #[cfg(test)]

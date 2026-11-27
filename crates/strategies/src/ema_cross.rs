@@ -107,15 +107,10 @@ impl Strategy for EmaCross {
 
         let bars = (0..candles.len())
             .map(|i| {
-                let (exit_long, exit_short) = match (fast_ema[i], slow_ema[i]) {
-                    (Some(f), Some(s)) => (f < s, f > s),
-                    _ => (false, false),
-                };
+                let exit_long = matches!((fast_ema[i], slow_ema[i]), (Some(f), Some(s)) if f < s);
                 StrategyBar {
                     enter_long: cross_up(&fast_ema, &slow_ema, i),
                     exit_long,
-                    enter_short: cross_up(&slow_ema, &fast_ema, i),
-                    exit_short,
                     atr: atrs[i],
                 }
             })

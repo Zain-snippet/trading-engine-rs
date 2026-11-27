@@ -156,8 +156,6 @@ impl Strategy for Donchian {
                 StrategyBar {
                     enter_long: level.entry_upper.is_some_and(|hh| close > hh),
                     exit_long: level.exit_lower.is_some_and(|xl| close < xl),
-                    enter_short: level.entry_lower.is_some_and(|ll| close < ll),
-                    exit_short: level.exit_upper.is_some_and(|xh| close > xh),
                     atr: atr_val,
                 }
             })

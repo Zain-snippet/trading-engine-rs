@@ -21,8 +21,6 @@ use trading_engine_core::Candle;
 pub struct StrategyBar {
     pub enter_long: bool,
     pub exit_long: bool,
-    pub enter_short: bool,
-    pub exit_short: bool,
     pub atr: Option<f64>,
 }
 

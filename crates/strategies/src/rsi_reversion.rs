@@ -111,17 +111,9 @@ impl Strategy for RsiReversion {
                     (Some(r), Some(t)) if r < self.entry && close > t
                 );
                 let exit_long = rsi_vals[i].is_some_and(|r| r > self.exit);
-                let enter_short = matches!(
-                    (rsi_vals[i], trend[i]),
-                    (Some(r), Some(t)) if r > (100.0 - self.entry) && close < t
-                );
-                let exit_short = rsi_vals[i].is_some_and(|r| r < (100.0 - self.exit));
-
                 StrategyBar {
                     enter_long,
                     exit_long,
-                    enter_short,
-                    exit_short,
                     atr: atrs[i],
                 }
             })
