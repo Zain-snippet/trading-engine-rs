@@ -189,6 +189,26 @@ fn rules() -> OrderValidator {
     OrderValidator::new([&symbol]).unwrap()
 }
 
+fn rules_for(symbols: &[&str]) -> OrderValidator {
+    let metadata: Vec<ExchangeSymbol> = symbols
+        .iter()
+        .map(|symbol| {
+            let id = SymbolId::parse(symbol).unwrap();
+            serde_json::from_value(serde_json::json!({
+                "symbol":id.binance_symbol(), "status":"TRADING", "baseAsset":id.base(), "quoteAsset":id.quote(),
+                "filters":[
+                    {"filterType":"PRICE_FILTER","minPrice":"0.01","maxPrice":"1000000","tickSize":"0.01"},
+                    {"filterType":"LOT_SIZE","minQty":"0.001","maxQty":"1000","stepSize":"0.001"},
+                    {"filterType":"MARKET_LOT_SIZE","minQty":"0.001","maxQty":"1000","stepSize":"0.001"},
+                    {"filterType":"MIN_NOTIONAL","minNotional":"5","applyToMarket":true}
+                ]
+            }))
+            .unwrap()
+        })
+        .collect();
+    OrderValidator::new(metadata.iter()).unwrap()
+}
+
 fn engine(enter: bool) -> (TestnetEngine<FakeBroker>, std::path::PathBuf) {
     let dir = env::temp_dir().join(format!(
         "live-engine-{}-{}",
@@ -357,6 +377,68 @@ fn partial_fills_increment_position_once_and_reconcile_later_fill() {
         trading_engine_persistence::PersistedOrderStatus::Filled
     );
     assert_eq!(order.fills.len(), 2);
+}
+
+#[test]
+fn engine_tracks_independent_positions_for_multiple_symbols() {
+    let dir = env::temp_dir().join(format!(
+        "live-multi-symbol-{}-{}",
+        std::process::id(),
+        chrono::Utc::now().timestamp_nanos_opt().unwrap()
+    ));
+    fs::create_dir_all(&dir).unwrap();
+    let btc = SymbolId::parse("BTC/USDT").unwrap();
+    let config = BotConfig {
+        symbols: vec![
+            trading_engine_config::SymbolConfig::new(symbol(), 2, 1, 2.0),
+            trading_engine_config::SymbolConfig::new(btc.clone(), 2, 1, 2.0),
+        ],
+        history: 14,
+        capital_cap: Some(10_000.0),
+        ..BotConfig::default()
+    };
+    let strategies = HashMap::from([
+        (
+            symbol(),
+            Box::new(FixedStrategy {
+                enter: true,
+                exit: false,
+            }) as Box<dyn Strategy>,
+        ),
+        (
+            btc.clone(),
+            Box::new(FixedStrategy {
+                enter: true,
+                exit: false,
+            }) as Box<dyn Strategy>,
+        ),
+    ]);
+    let store = StateStore::open(dir.join("state.json")).unwrap();
+    let journal = Journal::open(dir.join("journal.csv")).unwrap();
+    let mut engine = TestnetEngine::open(
+        RuntimeEnvironment::SpotTestnet,
+        config,
+        strategies,
+        rules_for(&["ETH/USDT", "BTC/USDT"]),
+        FakeBroker::default(),
+        store,
+        journal,
+    )
+    .unwrap();
+
+    for sym in [symbol(), btc] {
+        engine
+            .step(
+                &sym,
+                &candles(1),
+                &context("2000", "1000", "0", false, false),
+            )
+            .unwrap();
+    }
+    assert_eq!(engine.state().positions.len(), 2);
+    assert!(engine.state().positions.contains_key("ETH/USDT"));
+    assert!(engine.state().positions.contains_key("BTC/USDT"));
+    assert_eq!(engine.broker.submissions.len(), 2);
 }
 
 #[test]
