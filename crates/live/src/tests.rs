@@ -47,6 +47,7 @@ struct FakeBroker {
     responses: HashMap<String, trading_engine_binance::OrderResponse>,
     open_order_snapshot: Vec<trading_engine_binance::OrderResponse>,
     ambiguous_next: bool,
+    partial_next: bool,
 }
 
 impl SpotTestnetExecution for FakeBroker {
@@ -75,6 +76,17 @@ impl SpotTestnetExecution for FakeBroker {
             })?;
         self.count += 1;
         let id = self.count;
+        let fill_qty = if self.partial_next {
+            Decimal::parse("0.25").unwrap()
+        } else {
+            *quantity
+        };
+        let status = if self.partial_next {
+            "PARTIALLY_FILLED"
+        } else {
+            "FILLED"
+        };
+        self.partial_next = false;
         self.submissions.push((side, client_order_id.to_owned()));
         self.trades.insert(
             id,
@@ -82,8 +94,8 @@ impl SpotTestnetExecution for FakeBroker {
                 id,
                 order_id: id,
                 price: reference_price.to_string(),
-                qty: quantity.to_string(),
-                quote_qty: (quantity.to_string().parse::<f64>().unwrap()
+                qty: fill_qty.to_string(),
+                quote_qty: (fill_qty.to_string().parse::<f64>().unwrap()
                     * reference_price.to_string().parse::<f64>().unwrap())
                 .to_string(),
                 commission: "0.1".to_owned(),
@@ -94,7 +106,7 @@ impl SpotTestnetExecution for FakeBroker {
         );
         let response: trading_engine_binance::OrderResponse = serde_json::from_value(serde_json::json!({
             "symbol":symbol.binance_symbol(), "orderId":id, "clientOrderId":client_order_id,
-            "status":"FILLED", "executedQty":quantity.to_string(), "cummulativeQuoteQty":self.trades[&id][0].quote_qty,
+            "status":status, "executedQty":fill_qty.to_string(), "cummulativeQuoteQty":self.trades[&id][0].quote_qty,
             "fills":[]
         })).unwrap();
         self.responses
@@ -263,6 +275,88 @@ fn entry_passes_strategy_risk_validation_fills_position_persists_and_deduplicate
     assert_eq!(engine.broker.submissions.len(), 1);
     let journal = fs::read_to_string(dir.join("journal.csv")).unwrap();
     assert_eq!(journal.lines().count(), 2);
+}
+
+#[test]
+fn partial_fills_increment_position_once_and_reconcile_later_fill() {
+    let (mut engine, _) = engine(true);
+    engine.broker.partial_next = true;
+    let result = engine
+        .step(
+            &symbol(),
+            &candles(1),
+            &context("2000", "1000", "0", false, false),
+        )
+        .unwrap();
+    assert!(matches!(
+        result,
+        LiveStepResult::OrderSubmitted {
+            status: OrderStatus::PartiallyFilled,
+            ..
+        }
+    ));
+    assert!((engine.state().positions["ETH/USDT"].qty - 0.25).abs() < 1e-9);
+    let client_id = engine
+        .state()
+        .exchange
+        .as_ref()
+        .unwrap()
+        .orders
+        .keys()
+        .next()
+        .unwrap()
+        .clone();
+    let order_id = engine.state().exchange.as_ref().unwrap().orders[&client_id]
+        .exchange_order_id
+        .as_ref()
+        .unwrap()
+        .parse::<u64>()
+        .unwrap();
+
+    engine
+        .reconcile_startup(&HashMap::from([(
+            "ETH".to_owned(),
+            Decimal::parse("0.25").unwrap(),
+        )]))
+        .unwrap();
+    assert!((engine.state().positions["ETH/USDT"].qty - 0.25).abs() < 1e-9);
+
+    let mut fills = engine.broker.trades[&order_id].clone();
+    fills.push(BinanceTrade {
+        id: 99,
+        order_id,
+        price: "2000".to_owned(),
+        qty: "0.247".to_owned(),
+        quote_qty: "494".to_owned(),
+        commission: "0.1".to_owned(),
+        commission_asset: "USDT".to_owned(),
+        time: 1_735_675_200_099,
+        is_buyer: true,
+    });
+    engine.broker.trades.insert(order_id, fills);
+    let response: trading_engine_binance::OrderResponse =
+        serde_json::from_value(serde_json::json!({
+            "symbol":"ETHUSDT", "orderId":order_id, "clientOrderId":client_id,
+            "status":"FILLED", "executedQty":"0.497", "cummulativeQuoteQty":"994", "fills":[]
+        }))
+        .unwrap();
+    engine.broker.responses.insert(client_id.clone(), response);
+
+    assert!(engine
+        .reconcile_startup(&HashMap::from([(
+            "ETH".to_owned(),
+            Decimal::parse("0.497").unwrap(),
+        )]))
+        .unwrap()
+        .is_empty());
+    let position = &engine.state().positions["ETH/USDT"];
+    assert!((position.qty - 0.497).abs() < 1e-9);
+    let order = &engine.state().exchange.as_ref().unwrap().orders[&client_id];
+    assert_eq!(
+        order.status,
+        trading_engine_persistence::PersistedOrderStatus::Filled
+    );
+    assert_eq!(order.fills.len(), 2);
 }
 
 #[test]
