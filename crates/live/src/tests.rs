@@ -48,6 +48,7 @@ struct FakeBroker {
     open_order_snapshot: Vec<trading_engine_binance::OrderResponse>,
     ambiguous_next: bool,
     partial_next: bool,
+    commission: Option<(String, String)>,
 }
 
 impl SpotTestnetExecution for FakeBroker {
@@ -87,6 +88,10 @@ impl SpotTestnetExecution for FakeBroker {
             "FILLED"
         };
         self.partial_next = false;
+        let (commission, commission_asset) = self
+            .commission
+            .clone()
+            .unwrap_or_else(|| ("0.1".to_owned(), "USDT".to_owned()));
         self.submissions.push((side, client_order_id.to_owned()));
         self.trades.insert(
             id,
@@ -98,8 +103,8 @@ impl SpotTestnetExecution for FakeBroker {
                 quote_qty: (fill_qty.to_string().parse::<f64>().unwrap()
                     * reference_price.to_string().parse::<f64>().unwrap())
                 .to_string(),
-                commission: "0.1".to_owned(),
-                commission_asset: "USDT".to_owned(),
+                commission: commission.clone(),
+                commission_asset: commission_asset.clone(),
                 time: 1_735_675_200_000 + id,
                 is_buyer: side == Side::Buy,
             }],
@@ -377,6 +382,23 @@ fn partial_fills_increment_position_once_and_reconcile_later_fill() {
         trading_engine_persistence::PersistedOrderStatus::Filled
     );
     assert_eq!(order.fills.len(), 2);
+}
+
+#[test]
+fn base_asset_buy_commission_reduces_received_quantity_without_double_counting_cost() {
+    let (mut engine, _) = engine(true);
+    engine.broker.commission = Some(("0.001".to_owned(), "ETH".to_owned()));
+    engine
+        .step(
+            &symbol(),
+            &candles(1),
+            &context("2000", "1000", "0", false, false),
+        )
+        .unwrap();
+
+    let position = &engine.state().positions["ETH/USDT"];
+    assert!((position.qty - 0.496).abs() < 1e-9);
+    assert!((position.entry - (994.0 / 0.496)).abs() < 1e-8);
 }
 
 #[test]

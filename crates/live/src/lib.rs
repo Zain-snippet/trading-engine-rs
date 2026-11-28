@@ -941,7 +941,10 @@ impl<B: SpotTestnetExecution> TestnetEngine<B> {
         };
         if order_side == Side::Buy {
             let net_qty = qty - base_fee;
-            let actual_cost = quote_qty + quote_fee + base_fee * price;
+            // `quote_qty` already includes the gross executed base quantity;
+            // a base-asset commission reduces received quantity but does not
+            // add a second quote-denominated purchase cost.
+            let actual_cost = quote_qty + quote_fee;
             if net_qty <= 0.0 || !actual_cost.is_finite() {
                 return Err(LiveError::InvalidMarketData(
                     "entry fill commissions exceed fill quantity",
