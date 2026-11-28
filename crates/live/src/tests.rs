@@ -4,7 +4,9 @@ use chrono::NaiveDate;
 use trading_engine_binance::{BinanceTrade, Decimal, ExchangeSymbol, OrderStatus, OrderValidator};
 use trading_engine_config::BotConfig;
 use trading_engine_core::{Candle, Money, Side, SymbolId, Timestamp};
-use trading_engine_persistence::{Journal, StateStore};
+use trading_engine_persistence::{
+    Journal, PersistedExchangeOrder, PersistedOrderStatus, StateStore,
+};
 use trading_engine_strategies::{Strategy, StrategyBar, StrategyError};
 
 use crate::{
@@ -677,4 +679,79 @@ fn restart_recovers_terminal_order_when_status_was_saved_before_fills() {
         .is_empty());
     assert!((restarted.state().positions["ETH/USDT"].qty - 0.497).abs() < 1e-9);
     assert_eq!(restarted.state().exchange.as_ref().unwrap().orders.len(), 1);
+}
+
+#[test]
+fn restart_closes_prepared_intent_without_posting_and_prevents_signal_replay() {
+    let (mut original, dir) = engine(true);
+    let broker = std::mem::take(&mut original.broker);
+    drop(original);
+
+    let mut store = StateStore::open(dir.join("state.json")).unwrap();
+    store
+        .record_exchange_intent(PersistedExchangeOrder {
+            symbol: "ETH/USDT".to_owned(),
+            side: "BUY".to_owned(),
+            client_order_id: "prepared-but-not-submitted".to_owned(),
+            requested_qty: "0.5".to_owned(),
+            status: PersistedOrderStatus::Prepared,
+            exchange_order_id: None,
+            executed_qty: "0".to_owned(),
+            cumulative_quote_qty: "0".to_owned(),
+            fills: HashMap::new(),
+            signal_candle: Some("1735675200000".to_owned()),
+            atr: Some(10.0),
+            stop_price: Some("1980".to_owned()),
+            reason: Some("entry".to_owned()),
+            created_at_ms: 1,
+            last_reconciled_at_ms: None,
+            discrepancy: None,
+        })
+        .unwrap();
+    drop(store);
+
+    let config = BotConfig {
+        symbols: vec![trading_engine_config::SymbolConfig::new(
+            symbol(),
+            2,
+            1,
+            2.0,
+        )],
+        history: 14,
+        capital_cap: Some(10_000.0),
+        ..BotConfig::default()
+    };
+    let strategies = HashMap::from([(
+        symbol(),
+        Box::new(FixedStrategy {
+            enter: true,
+            exit: false,
+        }) as Box<dyn Strategy>,
+    )]);
+    let store = StateStore::open(dir.join("state.json")).unwrap();
+    let journal = Journal::open(dir.join("journal.csv")).unwrap();
+    let mut restarted = TestnetEngine::open(
+        RuntimeEnvironment::SpotTestnet,
+        config,
+        strategies,
+        rules(),
+        broker,
+        store,
+        journal,
+    )
+    .unwrap();
+    let findings = restarted.reconcile_startup(&HashMap::new()).unwrap();
+    assert_eq!(findings.len(), 1);
+    assert_eq!(restarted.broker.submissions.len(), 0);
+    assert_eq!(
+        restarted
+            .state()
+            .last_candle
+            .get("ETH/USDT")
+            .map(String::as_str),
+        Some("1735675200000")
+    );
+    let order = &restarted.state().exchange.as_ref().unwrap().orders["prepared-but-not-submitted"];
+    assert_eq!(order.status, PersistedOrderStatus::Rejected);
+    assert!(order.discrepancy.is_none());
 }

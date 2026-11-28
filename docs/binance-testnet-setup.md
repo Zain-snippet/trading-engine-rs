@@ -47,7 +47,8 @@ cargo run --locked -p trading-engine-cli -- run --environment testnet config.tom
 
 The engine fetches current Testnet ticker prices, completed candles, account
 balances, and symbol filters. It reconciles persisted orders and positions
-before entering its polling loop. Persisted state goes under `state_dir`; the
+before entering its polling loop and reconciles pending exchange orders again
+at the end of each polling cycle. Persisted state goes under `state_dir`; the
 CSV journal goes under `log_dir`. Do not run more than one engine against the
 same paths.
 

@@ -5,7 +5,9 @@ use trading_engine_binance::{BinancePublicClient, BinanceTestnetClient, Decimal,
 use trading_engine_config::{BotConfig, SymbolConfig};
 use trading_engine_core::{SymbolId, Timestamp};
 use trading_engine_live::{LiveStepResult, RiskContext, RuntimeEnvironment, TestnetEngine};
-use trading_engine_persistence::{Journal, StateStore};
+use trading_engine_persistence::{
+    BotState, Journal, PersistedExchangeOrder, PersistedOrderStatus, StateStore,
+};
 use trading_engine_risk::compute_equity;
 use trading_engine_strategies::{Donchian, Strategy};
 
@@ -272,8 +274,8 @@ fn run_engine(config: BotConfig) -> AnyResult<()> {
             "Spot Testnet account reports trading disabled; new entries will remain blocked."
         );
     }
-    let total_balances = total_balances(&account.balances)?;
-    let findings = engine.reconcile_startup(&total_balances)?;
+    let startup_balances = total_balances(&account.balances)?;
+    let findings = engine.reconcile_startup(&startup_balances)?;
     for finding in findings {
         eprintln!("reconciliation: {finding}");
     }
@@ -315,13 +317,57 @@ fn run_engine(config: BotConfig) -> AnyResult<()> {
                 result => println!("{}: {result:?}", symbol_config.symbol),
             }
         }
-        if config.state_dir.join("STOP").exists() && engine.state().positions.is_empty() {
+        let account = engine.account()?;
+        let findings = engine.reconcile_startup(&total_balances(&account.balances)?)?;
+        for finding in findings {
+            eprintln!("reconciliation: {finding}");
+        }
+        if config.state_dir.join("STOP").exists() && safe_to_stop(engine.state()) {
             println!("stop complete: no tracked positions remain");
             break;
         }
         thread::sleep(Duration::from_secs(config.poll_s));
     }
     Ok(())
+}
+
+fn safe_to_stop(state: &BotState) -> bool {
+    if !state.positions.is_empty() {
+        return false;
+    }
+    let Some(exchange) = state.exchange.as_ref() else {
+        return true;
+    };
+    exchange.untracked_open_orders.is_empty()
+        && exchange.discrepancies.is_empty()
+        && exchange.orders.values().all(|order| {
+            !matches!(
+                order.status,
+                PersistedOrderStatus::Prepared
+                    | PersistedOrderStatus::Submitting
+                    | PersistedOrderStatus::Unknown
+                    | PersistedOrderStatus::New
+                    | PersistedOrderStatus::PartiallyFilled
+            ) && order.discrepancy.is_none()
+                && fill_quantity_is_accounted(order)
+        })
+}
+
+fn fill_quantity_is_accounted(order: &PersistedExchangeOrder) -> bool {
+    let Ok(executed) = Decimal::parse(&order.executed_qty) else {
+        return false;
+    };
+    let mut filled = Decimal::zero();
+    for record in order.fills.values() {
+        let Ok(quantity) = Decimal::parse(&record.qty) else {
+            return false;
+        };
+        let Ok(total) = filled.checked_add(quantity) else {
+            return false;
+        };
+        filled = total;
+    }
+    filled == executed
 }
 
 fn build_engine(config: &BotConfig) -> AnyResult<TestnetEngine<BinanceTestnetClient>> {
@@ -450,7 +496,9 @@ fn print_usage() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use trading_engine_persistence::{ExchangeState, ReconciliationDiscrepancy};
+    use trading_engine_persistence::{
+        ExchangeState, PersistedExchangeFill, PersistedExchangeOrder, ReconciliationDiscrepancy,
+    };
 
     #[test]
     fn example_config_is_valid_and_exchange_requires_explicit_testnet() {
@@ -497,5 +545,63 @@ mod tests {
         assert!(control("resume", config_path).is_err());
         assert!(state_dir.join("PAUSE").exists());
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn graceful_stop_waits_for_exchange_orders_and_fill_accounting() {
+        let mut state = BotState::default();
+        let mut order = PersistedExchangeOrder {
+            symbol: "ETH/USDT".to_owned(),
+            side: "BUY".to_owned(),
+            client_order_id: "test-order".to_owned(),
+            requested_qty: "1".to_owned(),
+            status: PersistedOrderStatus::Unknown,
+            exchange_order_id: None,
+            executed_qty: "0".to_owned(),
+            cumulative_quote_qty: "0".to_owned(),
+            fills: HashMap::new(),
+            signal_candle: None,
+            atr: None,
+            stop_price: None,
+            reason: None,
+            created_at_ms: 1,
+            last_reconciled_at_ms: None,
+            discrepancy: None,
+        };
+        state.exchange = Some(ExchangeState {
+            orders: HashMap::from([("test-order".to_owned(), order.clone())]),
+            ..ExchangeState::default()
+        });
+        assert!(!safe_to_stop(&state));
+
+        order.status = PersistedOrderStatus::Filled;
+        order.executed_qty = "1".to_owned();
+        state
+            .exchange
+            .as_mut()
+            .unwrap()
+            .orders
+            .insert("test-order".to_owned(), order.clone());
+        assert!(!safe_to_stop(&state));
+
+        order.fills.insert(
+            "trade-1".to_owned(),
+            PersistedExchangeFill {
+                trade_id: "trade-1".to_owned(),
+                qty: "1.0".to_owned(),
+                price: "2000".to_owned(),
+                quote_qty: "2000".to_owned(),
+                commission: "0".to_owned(),
+                commission_asset: "USDT".to_owned(),
+                time_ms: 1,
+            },
+        );
+        state
+            .exchange
+            .as_mut()
+            .unwrap()
+            .orders
+            .insert("test-order".to_owned(), order);
+        assert!(safe_to_stop(&state));
     }
 }

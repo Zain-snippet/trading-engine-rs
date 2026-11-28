@@ -46,6 +46,10 @@ pub enum LiveStepResult {
         status: OrderStatus,
         executed_qty: String,
     },
+    OrderRejected {
+        client_order_id: String,
+        reason: String,
+    },
     AmbiguousSubmission {
         client_order_id: String,
     },
@@ -292,6 +296,35 @@ impl<B: SpotTestnetExecution> TestnetEngine<B> {
         for order in in_flight {
             let symbol = SymbolId::parse(&order.symbol)
                 .map_err(|_| LiveError::InvalidMarketData("invalid persisted exchange symbol"))?;
+            if order.status == PersistedOrderStatus::Prepared {
+                let reason = "restart found a durable intent that had not entered submission";
+                self.store
+                    .update_exchange_order(&order.client_order_id, |record| {
+                        record.status = PersistedOrderStatus::Rejected;
+                        record.discrepancy = None;
+                        record.reason = Some(reason.to_owned());
+                    })?;
+                if let Some(candle) = order.signal_candle.as_ref() {
+                    self.store
+                        .state
+                        .last_candle
+                        .insert(order.symbol.clone(), candle.clone());
+                }
+                self.store.save()?;
+                self.journal.write(&JournalEntry {
+                    ts_utc: chrono::Utc::now().to_rfc3339(),
+                    event: "reconcile".to_owned(),
+                    symbol: order.symbol.clone(),
+                    client_id: Some(order.client_order_id.clone()),
+                    details: Some(reason.to_owned()),
+                    ..JournalEntry::default()
+                })?;
+                findings.push(format!(
+                    "{}: {reason}; no POST was sent",
+                    order.client_order_id
+                ));
+                continue;
+            }
             match self.broker.query_order(&symbol, &order.client_order_id) {
                 Ok(response) => {
                     let stored_stop = order
@@ -719,14 +752,14 @@ impl<B: SpotTestnetExecution> TestnetEngine<B> {
                     } else {
                         PersistedOrderStatus::Rejected
                     };
-                    record.discrepancy = Some(failure.message.clone());
+                    record.discrepancy = failure.ambiguous.then(|| failure.message.clone());
                 })?;
                 return Ok(if failure.ambiguous {
                     LiveStepResult::AmbiguousSubmission {
                         client_order_id: client_id.to_owned(),
                     }
                 } else {
-                    LiveStepResult::NeedsReconciliation {
+                    LiveStepResult::OrderRejected {
                         client_order_id: client_id.to_owned(),
                         reason: failure.message,
                     }
