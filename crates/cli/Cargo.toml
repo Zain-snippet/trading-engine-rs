@@ -1,0 +1,20 @@
+[package]
+name = "trading-engine-cli"
+version.workspace = true
+edition.workspace = true
+description = "Local CLI for the Binance Spot Testnet trading engine."
+publish = false
+
+[[bin]]
+name = "trading-engine"
+path = "src/main.rs"
+
+[dependencies]
+chrono.workspace = true
+trading-engine-binance = { path = "../binance" }
+trading-engine-config.workspace = true
+trading-engine-core.workspace = true
+trading-engine-live = { path = "../live" }
+trading-engine-persistence.workspace = true
+trading-engine-risk.workspace = true
+trading-engine-strategies.workspace = true

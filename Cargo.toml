@@ -11,6 +11,7 @@ members = [
   "crates/backtest",
   "crates/binance",
   "crates/live",
+  "crates/cli",
 ]
 
 [workspace.package]

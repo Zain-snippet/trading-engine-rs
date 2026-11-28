@@ -155,6 +155,18 @@ impl BinancePublicClient {
         Ok(price)
     }
 
+    /// Retrieves public Spot Testnet symbol metadata and filters.
+    pub fn exchange_info(
+        &self,
+        symbol: Option<&SymbolId>,
+    ) -> Result<crate::ExchangeInfo, MarketDataError> {
+        let query = symbol
+            .map(|symbol| vec![("symbol", symbol.binance_symbol())])
+            .unwrap_or_default();
+        let value = self.get("/v3/exchangeInfo", &query)?;
+        serde_json::from_value(value).map_err(|error| MarketDataError::Malformed(error.to_string()))
+    }
+
     fn get(&self, path: &str, query: &[(&str, String)]) -> Result<Value, MarketDataError> {
         for attempt in 0..MAX_ATTEMPTS {
             let response = self
@@ -334,6 +346,18 @@ mod tests {
         let (client, server) = mock(response);
         let symbol = SymbolId::parse("ETH/USDT").unwrap();
         assert_eq!(client.ticker_price(&symbol).unwrap(), 2312.5);
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn exchange_rules_are_retrievable_from_public_endpoint_without_credentials() {
+        let payload = r#"{"symbols":[{"symbol":"ETHUSDT","status":"TRADING","baseAsset":"ETH","quoteAsset":"USDT","filters":[]}]}"#;
+        let response = format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{payload}", payload.len());
+        let (client, server) = mock(response);
+        let symbol = SymbolId::parse("ETH/USDT").unwrap();
+        let info = client.exchange_info(Some(&symbol)).unwrap();
+        assert_eq!(info.symbols.len(), 1);
+        assert_eq!(info.symbols[0].base_asset, "ETH");
         server.join().unwrap();
     }
 

@@ -10,6 +10,7 @@
 .env.*
 !.env.example
 *.env
+/config.toml
 secrets/
 *.key
 *.pem

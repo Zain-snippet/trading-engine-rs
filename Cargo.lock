@@ -1203,6 +1203,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "trading-engine-cli"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "trading-engine-binance",
+ "trading-engine-config",
+ "trading-engine-core",
+ "trading-engine-live",
+ "trading-engine-persistence",
+ "trading-engine-risk",
+ "trading-engine-strategies",
+]
+
+[[package]]
 name = "trading-engine-config"
 version = "0.1.0"
 dependencies = [
